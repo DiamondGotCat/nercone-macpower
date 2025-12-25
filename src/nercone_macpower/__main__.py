@@ -12,7 +12,7 @@ from __future__ import annotations
 import sys
 import json
 import argparse
-from datetime import time, datetime, timedelta
+from datetime import time, datetime
 from rich.console import Console
 from rich.text import Text
 from rich.panel import Panel
@@ -30,6 +30,7 @@ if TYPE_CHECKING:
         PMEventType,
         PMWeekday,
         PMRepeatEvent,
+        PMSectionedKeyValues,
     )
 else:
     try:
@@ -43,6 +44,7 @@ else:
             PMEventType,
             PMWeekday,
             PMRepeatEvent,
+            PMSectionedKeyValues,
         )
     except ImportError:  # pragma: no cover
         from macpower import (  # type: ignore[reportMissingImports]
@@ -55,6 +57,7 @@ else:
             PMEventType,
             PMWeekday,
             PMRepeatEvent,
+            PMSectionedKeyValues,
         )
 
 def _console() -> Any:
@@ -140,6 +143,26 @@ def _render_kv_table(title: str, kv: Dict[str, Any]) -> None:
         table.add_row(str(k), str(kv[k]))
     con.print(table)
 
+def _render_sectioned_kv(obj: Any, *, json_out: bool, title: str) -> None:
+    if json_out:
+        out: Dict[str, Any] = {"raw": obj.raw, "sections": {}}
+        for sec, kv in obj.sections.items():
+            out["sections"][sec] = dict(kv)
+        _print_json(out)
+        return
+
+    con = _console()
+    if con is None:
+        print(obj.raw, end="" if obj.raw.endswith("\n") else "\n")
+        return
+
+    if not obj.sections:
+        con.print(Panel(Text(obj.raw.strip()), title=title))
+        return
+
+    for sec, kv in obj.sections.items():
+        _render_kv_table(f"{title}: {sec}", dict(kv))
+
 def _render_settings_snapshot(snapshot: Any, *, json_out: bool) -> None:
     if json_out:
         out: Dict[str, Any] = {"raw": snapshot.raw, "blocks": {}}
@@ -176,6 +199,24 @@ def _render_settings_snapshot(snapshot: Any, *, json_out: bool) -> None:
 
     for label, block in blocks:
         _render_kv_table(f"{label}: {block.title}", dict(block.values))
+
+def _coerce_value(s: str) -> Union[int, str]:
+    v = s.strip()
+    vl = v.lower()
+    if vl in ("on", "true", "yes", "y", "enable", "enabled"):
+        return 1
+    if vl in ("off", "false", "no", "n", "disable", "disabled"):
+        return 0
+    if v.lstrip("-").isdigit():
+        return int(v)
+    return v
+
+def _coerce_key(k: str) -> Union[PMSetting, str]:
+    k = k.strip()
+    try:
+        return PMSetting(k)
+    except ValueError:
+        return k
 
 def _cmd_status(ns: argparse.Namespace) -> int:
     pm = _pm_factory(ns)
@@ -219,6 +260,27 @@ def _cmd_get(ns: argparse.Namespace) -> int:
         _print_json({"option": str(ns.option), "raw": txt})
     else:
         print(txt, end="" if txt.endswith("\n") else "\n")
+    return 0
+
+def _cmd_exec(ns: argparse.Namespace) -> int:
+    pm = _pm_factory(ns)
+    r = pm.run(*ns.pmset_args, check=not ns.no_check)
+    if ns.json:
+        _print_json(
+            {
+                "args": r.args,
+                "returncode": r.returncode,
+                "stdout": r.stdout,
+                "stderr": r.stderr,
+            }
+        )
+    else:
+        if r.stdout:
+            print(r.stdout, end="" if r.stdout.endswith("\n") else "\n")
+        if r.stderr:
+            _eprint(r.stderr.rstrip())
+        if r.returncode != 0:
+            return int(r.returncode)
     return 0
 
 def _cmd_settings_show(ns: argparse.Namespace) -> int:
@@ -293,25 +355,69 @@ def _parse_kv_pairs(pairs: List[str]) -> Dict[Union[PMSetting, str], Union[int, 
         if "=" not in item:
             raise ValueError(f"Invalid setting pair (expected KEY=VALUE): {item!r}")
         k, v = item.split("=", 1)
-        k = k.strip()
-        v = v.strip()
-        try:
-            key: Union[PMSetting, str] = PMSetting(k)
-        except ValueError:
-            key = k
-        val: Union[int, str]
-        val = int(v) if v.lstrip("-").isdigit() else v
+        key = _coerce_key(k)
+        val = _coerce_value(v)
         out[key] = val
     return out
 
 def _cmd_settings_set(ns: argparse.Namespace) -> int:
     pm = _pm_factory(ns)
     settings = _parse_kv_pairs(ns.pairs)
-
     pm.set_settings(settings, scope=_parse_scope(ns.scope))
-
     if ns.json:
-        _print_json({"ok": True, "scope": ns.scope, "applied": settings})
+        _print_json({"ok": True, "scope": ns.scope, "applied": {str(k): v for k, v in settings.items()}})
+    return 0
+
+def _cmd_legacy_dim(ns: argparse.Namespace) -> int:
+    pm = _pm_factory(ns)
+    pm.set_dim(_coerce_value(ns.value), scope=_parse_scope(ns.scope))
+    if ns.json:
+        _print_json({"ok": True, "legacy": "dim", "scope": ns.scope, "value": _coerce_value(ns.value)})
+    return 0
+
+def _cmd_legacy_spindown(ns: argparse.Namespace) -> int:
+    pm = _pm_factory(ns)
+    pm.set_spindown(_coerce_value(ns.value), scope=_parse_scope(ns.scope))
+    if ns.json:
+        _print_json({"ok": True, "legacy": "spindown", "scope": ns.scope, "value": _coerce_value(ns.value)})
+    return 0
+
+def _cmd_cap_show(ns: argparse.Namespace) -> int:
+    pm = _pm_factory(ns)
+    cap = pm.cap()
+    _render_sectioned_kv(cap, json_out=ns.json, title="Capabilities")
+    return 0
+
+def _cmd_ups_show(ns: argparse.Namespace) -> int:
+    pm = _pm_factory(ns)
+    ups = pm.ups_info()
+    _render_sectioned_kv(ups, json_out=ns.json, title="UPS")
+    return 0
+
+def _cmd_ups_thresholds(ns: argparse.Namespace) -> int:
+    pm = _pm_factory(ns)
+    pm.set_ups_thresholds(
+        haltlevel=ns.haltlevel,
+        haltafter_min=ns.haltafter,
+        haltremain_min=ns.haltremain,
+        off=ns.off,
+    )
+    if ns.json:
+        _print_json(
+            {
+                "ok": True,
+                "off": bool(ns.off),
+                "haltlevel": ns.haltlevel,
+                "haltafter_min": ns.haltafter,
+                "haltremain_min": ns.haltremain,
+            }
+        )
+    return 0
+
+def _cmd_adapter_show(ns: argparse.Namespace) -> int:
+    pm = _pm_factory(ns)
+    ad = pm.adapter()
+    _render_sectioned_kv(ad, json_out=ns.json, title="Adapter (AC)")
     return 0
 
 def _cmd_sched_show(ns: argparse.Namespace) -> int:
@@ -438,7 +544,16 @@ def _cmd_repeat_cancel(ns: argparse.Namespace) -> int:
 
 def _cmd_action(ns: argparse.Namespace) -> int:
     pm = _pm_factory(ns)
-    act = ns.action
+    act = ns.action.strip()
+    val = ns.value
+
+    if val is not None:
+        key = _coerce_key(act)
+        value = _coerce_value(val)
+        pm.set_setting(key, value, scope=_parse_scope(ns.scope))
+        if ns.json:
+            _print_json({"ok": True, "mode": "set", "scope": ns.scope, "key": str(key), "value": value})
+        return 0
 
     if act == "sleepnow":
         pm.sleepnow()
@@ -452,11 +567,15 @@ def _cmd_action(ns: argparse.Namespace) -> int:
         pm.restoredefaults()
     elif act == "resetdisplayambientparams":
         pm.resetdisplayambientparams()
+    elif act == "noidle":
+        for line in pm.noidle():
+            print(line)
+        return 0
     else:
-        raise MacPowerError(f"Unknown action: {act}")
+        raise MacPowerError("Unknown action. Supported immediate actions: sleepnow, displaysleepnow, touch, boot, restoredefaults, resetdisplayambientparams, noidle.\nIf you intended to set a pmset key, provide VALUE: e.g. `macpower action standby on`")
 
     if ns.json:
-        _print_json({"ok": True, "action": act})
+        _print_json({"ok": True, "mode": "action", "action": act})
     return 0
 
 def _cmd_relative(ns: argparse.Namespace) -> int:
@@ -483,12 +602,68 @@ def _cmd_stream(ns: argparse.Namespace) -> int:
     elif kind == "uuidlog":
         gen = pm.uuidlog()
     elif kind == "powerstatelog":
-        gen = pm.powerstatelog(ns.interval)
+        gen = pm.powerstatelog(ns.interval, *ns.class_names)
+    elif kind == "noidle":
+        gen = pm.noidle()
     else:
         raise MacPowerError(f"Unknown stream: {kind}")
 
     for line in gen:
         print(line)
+    return 0
+
+def _cmd_history_show(ns: argparse.Namespace) -> int:
+    pm = _pm_factory(ns)
+    txt = pm.history()
+    if ns.json:
+        _print_json({"raw": txt})
+    else:
+        print(txt, end="" if txt.endswith("\n") else "\n")
+    return 0
+
+def _cmd_history_detailed(ns: argparse.Namespace) -> int:
+    pm = _pm_factory(ns)
+    txt = pm.history_detailed(ns.uuid)
+    if ns.json:
+        _print_json({"uuid": ns.uuid, "raw": txt})
+    else:
+        print(txt, end="" if txt.endswith("\n") else "\n")
+    return 0
+
+def _cmd_powerstate(ns: argparse.Namespace) -> int:
+    pm = _pm_factory(ns)
+    txt = pm.powerstate(*ns.class_names)
+    if ns.json:
+        _print_json({"classes": list(ns.class_names), "raw": txt})
+    else:
+        print(txt, end="" if txt.endswith("\n") else "\n")
+    return 0
+
+def _cmd_stats(ns: argparse.Namespace) -> int:
+    pm = _pm_factory(ns)
+    txt = pm.stats()
+    if ns.json:
+        _print_json({"raw": txt})
+    else:
+        print(txt, end="" if txt.endswith("\n") else "\n")
+    return 0
+
+def _cmd_systemstate(ns: argparse.Namespace) -> int:
+    pm = _pm_factory(ns)
+    txt = pm.systemstate()
+    if ns.json:
+        _print_json({"raw": txt})
+    else:
+        print(txt, end="" if txt.endswith("\n") else "\n")
+    return 0
+
+def _cmd_everything(ns: argparse.Namespace) -> int:
+    pm = _pm_factory(ns)
+    txt = pm.everything()
+    if ns.json:
+        _print_json({"raw": txt})
+    else:
+        print(txt, end="" if txt.endswith("\n") else "\n")
     return 0
 
 def build_parser() -> argparse.ArgumentParser:
@@ -509,6 +684,12 @@ def build_parser() -> argparse.ArgumentParser:
     g = sub.add_parser("get", help="Run pmset -g <option> and print output")
     g.add_argument("option", type=str, help="pmset -g option (e.g. batt, custom, live, cap, sched, log, everything)")
     g.set_defaults(func=_cmd_get)
+
+    # exec
+    ex = sub.add_parser("exec", help="Run arbitrary pmset arguments (library .run() equivalent)")
+    ex.add_argument("--no-check", action="store_true", help="Do not raise on non-zero return code")
+    ex.add_argument("pmset_args", nargs=argparse.REMAINDER, help="Arguments passed to pmset (e.g. -g custom)")
+    ex.set_defaults(func=_cmd_exec)
 
     # settings
     st = sub.add_parser("settings", help="Show / get / set pmset settings")
@@ -536,6 +717,42 @@ def build_parser() -> argparse.ArgumentParser:
     st_set.add_argument("--scope", choices=["a", "b", "c", "u"], default="a", help="pmset scope: a/b/c/u (default: a)")
     st_set.add_argument("pairs", nargs="+", help="Setting pairs: KEY=VALUE KEY2=VALUE2 ...")
     st_set.set_defaults(func=_cmd_settings_set)
+
+    # legacy shortcuts
+    lg = sub.add_parser("legacy", help="Legacy convenience wrappers (dim/spindown)")
+    lgsub = lg.add_subparsers(dest="legacy_cmd", required=True)
+
+    lg_dim = lgsub.add_parser("dim", help="Set legacy 'dim' (deprecated; use displaysleep)")
+    lg_dim.add_argument("--scope", choices=["a", "b", "c", "u"], default="a")
+    lg_dim.add_argument("value", help="Value (int/on/off)")
+    lg_dim.set_defaults(func=_cmd_legacy_dim)
+
+    lg_sp = lgsub.add_parser("spindown", help="Set legacy 'spindown' (deprecated; use disksleep)")
+    lg_sp.add_argument("--scope", choices=["a", "b", "c", "u"], default="a")
+    lg_sp.add_argument("value", help="Value (int/on/off)")
+    lg_sp.set_defaults(func=_cmd_legacy_spindown)
+
+    # cap
+    cap = sub.add_parser("cap", help="Show pmset capabilities (parsed)")
+    cap.set_defaults(func=_cmd_cap_show)
+
+    # ups
+    ups = sub.add_parser("ups", help="UPS information and thresholds")
+    upssub = ups.add_subparsers(dest="ups_cmd", required=True)
+
+    ups_show = upssub.add_parser("show", help="Show UPS info (parsed from pmset -g ups)")
+    ups_show.set_defaults(func=_cmd_ups_show)
+
+    ups_thr = upssub.add_parser("thresholds", help="Set UPS shutdown thresholds (pmset -u ...)")
+    ups_thr.add_argument("--haltlevel", type=int, default=None, help="Battery level at which to halt/shutdown")
+    ups_thr.add_argument("--haltafter", type=int, default=None, help="Minutes after which to halt/shutdown")
+    ups_thr.add_argument("--haltremain", type=int, default=None, help="Minutes remaining at which to halt/shutdown")
+    ups_thr.add_argument("--off", action="store_true", help="Disable specified threshold(s) (set -1)")
+    ups_thr.set_defaults(func=_cmd_ups_thresholds)
+
+    # adapter
+    ad = sub.add_parser("adapter", help="Show AC adapter info (parsed)")
+    ad.set_defaults(func=_cmd_adapter_show)
 
     # sched
     sc = sub.add_parser("sched", help="Manage scheduled power events")
@@ -578,29 +795,47 @@ def build_parser() -> argparse.ArgumentParser:
     rel.add_argument("seconds", type=int)
     rel.set_defaults(func=_cmd_relative)
 
-    # actions
-    act = sub.add_parser("action", help="Run simple pmset actions")
-    act.add_argument(
-        "action",
-        choices=[
-            "sleepnow",
-            "displaysleepnow",
-            "touch",
-            "boot",
-            "restoredefaults",
-            "resetdisplayambientparams",
-        ],
-    )
+    # action
+    act = sub.add_parser("action", help="Run immediate action, or set a single pmset key (KEY VALUE)")
+    act.add_argument("action", help="Action name (sleepnow/displaysleepnow/touch/boot/restoredefaults/resetdisplayambientparams/noidle) or setting key name (e.g. standby, displaysleep, powernap ...)")
+    act.add_argument("value", nargs="?", default=None, help="If provided, set the key to this value (int/on/off/str).")
+    act.add_argument("--scope", choices=["a", "b", "c", "u"], default="a", help="Scope for KEY VALUE mode (default: a)")
     act.set_defaults(func=_cmd_action)
 
     # stream
-    stp = sub.add_parser("stream", help="Stream pmset logs (blocks until interrupted)")
-    stp.add_argument(
-        "kind",
-        choices=["pslog", "rawlog", "assertionslog", "sysloadlog", "thermlog", "uuidlog", "powerstatelog"],
-    )
+    stp = sub.add_parser("stream", help="Stream pmset logs / noidle (blocks until interrupted)")
+    stp.add_argument("kind", choices=["pslog", "rawlog", "assertionslog", "sysloadlog", "thermlog", "uuidlog", "powerstatelog", "noidle"])
     stp.add_argument("--interval", type=int, default=None, help="powerstatelog interval seconds (optional)")
+    stp.add_argument("class_names", nargs="*", help="(powerstatelog only) Optional class names")
     stp.set_defaults(func=_cmd_stream)
+
+    # history
+    hist = sub.add_parser("history", help="Show power history (parsed command wrappers)")
+    hsub = hist.add_subparsers(dest="history_cmd", required=True)
+
+    h_show = hsub.add_parser("show", help="Show pmset -g history")
+    h_show.set_defaults(func=_cmd_history_show)
+
+    h_det = hsub.add_parser("detailed", help="Show pmset -g historydetailed <uuid>")
+    h_det.add_argument("uuid", help="UUID for historydetailed")
+    h_det.set_defaults(func=_cmd_history_detailed)
+
+    # powerstate
+    ps = sub.add_parser("powerstate", help="Show pmset -g powerstate [class ...]")
+    ps.add_argument("class_names", nargs="*", help="Optional class names")
+    ps.set_defaults(func=_cmd_powerstate)
+
+    # stats
+    stt = sub.add_parser("stats", help="Show pmset -g stats")
+    stt.set_defaults(func=_cmd_stats)
+
+    # systemstate
+    ss = sub.add_parser("systemstate", help="Show pmset -g systemstate")
+    ss.set_defaults(func=_cmd_systemstate)
+
+    # everything
+    ev = sub.add_parser("everything", help="Show pmset -g everything")
+    ev.set_defaults(func=_cmd_everything)
 
     return p
 
@@ -611,6 +846,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     if ns.cmd == "get":
         if ns.option == "adapter":
             ns.option = "ac"
+
+    if ns.cmd == "exec":
+        if not ns.pmset_args:
+            raise SystemExit("macpower exec: no arguments provided. Example: macpower exec -g custom")
 
     try:
         return int(ns.func(ns))

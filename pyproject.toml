@@ -4,8 +4,8 @@ build-backend = "uv_build"
 
 [project]
 name = "nercone-macpower"
-version = "0.1.0"
-description = "pmset wrapper library/cli app for macOS (Darwin)"
+version = "0.2.0"
+description = "pmset wrapper library/cli app for Python on macOS"
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [
     { name = "Nercone", email = "nercone@diamondgotcat.net" }
