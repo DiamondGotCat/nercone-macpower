@@ -1,5 +1,5 @@
 # nercone-macpower
-pmset wrapper library/cli app for macOS (Darwin)
+pmset wrapper library/cli app for Python on macOS
 
 ## Requiments
 - CPython 3
