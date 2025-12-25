@@ -550,8 +550,10 @@ def _cmd_action(ns: argparse.Namespace) -> int:
         pm.sleepnow()
     elif act == "displaysleepnow":
         pm.displaysleepnow()
-    elif act == "hibernatenow":
-        pm.hibernatenow()
+    elif act == "safesleepnow":
+        pm.safesleepnow()
+    elif act == "deepsleepnow":
+        pm.deepsleepnow()
     elif act == "shutdownnow":
         pm.shutdownnow()
     elif act == "restartnow":
@@ -569,7 +571,7 @@ def _cmd_action(ns: argparse.Namespace) -> int:
             print(line)
         return 0
     else:
-        raise MacPowerError("Unknown action. Supported immediate actions: sleepnow, displaysleepnow, hibernatenow, shutdownnow, restartnow, touch, boot, restoredefaults, resetdisplayambientparams, noidle.\nIf you intended to set a pmset key, provide VALUE: e.g. `macpower action standby on`")
+        raise MacPowerError("Unknown action. Supported immediate actions: sleepnow, displaysleepnow, safesleepnow, deepsleepnow, shutdownnow, restartnow, touch, boot, restoredefaults, resetdisplayambientparams, noidle.\nIf you intended to set a pmset key, provide VALUE: e.g. `macpower action standby on`")
 
     if ns.json:
         _print_json({"ok": True, "mode": "action", "action": act})
@@ -794,7 +796,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # action
     act = sub.add_parser("action", help="Run immediate action, or set a single pmset key (KEY VALUE)")
-    act.add_argument("action", help="Action name (sleepnow/displaysleepnow/hibernatenow/shutdownnow/restartnow/touch/boot/restoredefaults/resetdisplayambientparams/noidle)")
+    act.add_argument("action", help="Action name (sleepnow/displaysleepnow/safesleepnow/deepsleepnow/shutdownnow/restartnow/touch/boot/restoredefaults/resetdisplayambientparams/noidle)")
     act.add_argument("--scope", choices=["a", "b", "c", "u"], default="a", help="Scope for KEY VALUE mode (default: a)")
     act.set_defaults(func=_cmd_action)
 

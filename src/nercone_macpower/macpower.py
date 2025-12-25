@@ -860,31 +860,18 @@ class MacPower:
     def displaysleepnow(self) -> None:
         self.run("displaysleepnow", check=True)
 
-    def hibernatenow(self, *, fallback_set_mode: bool = False, hibernatemode: int = 25, scope: Union[PMScope, Literal["a", "b", "c", "u"]] = PMScope.All) -> None:
+    def safesleepnow(self, *, fallback_set_mode: bool = False, scope: Union[PMScope, Literal["a", "b", "c", "u"]] = PMScope.All) -> None:
         """
-        Attempt to hibernate immediately.
-
-        Strategy:
-            1) Try `pmset hibernateforce` (works on some macOS versions/configurations; usually requires sudo).
-            2) If that fails and fallback_set_mode=True:
-               set hibernatemode=<hibernatemode> (default 25) then `pmset sleepnow`.
-
-        IMPORTANT:
-            - The fallback path changes `hibernatemode` persistently. It cannot be restored after sleep/hibernate
-              because this process will be suspended/terminated.
-            - For reliable behavior, run with sudo (--sudo) and understand your platform's supported modes.
+        Attempt to safesleep immediately.
         """
-        r = self.run("hibernateforce", check=False)
-        if r.returncode == 0:
-            return
-        if not fallback_set_mode:
-            raise MacPowerError(
-                "pmset hibernateforce failed on this system.\n"
-                    f"CMD: {shlex.join(r.args)}\n"
-                    f"STDERR:\n{(r.stderr or '').strip()}\n"
-                    "Enable fallback_set_mode=True to try setting hibernatemode=25 then sleepnow."
-            )
-        self.set_setting(PMSetting.HibernateMode, int(hibernatemode), scope=scope)
+        self.set_setting(PMSetting.HibernateMode, 3, scope=scope)
+        self.sleepnow()
+
+    def deepsleepnow(self, *, fallback_set_mode: bool = False, scope: Union[PMScope, Literal["a", "b", "c", "u"]] = PMScope.All) -> None:
+        """
+        Attempt to deepsleep immediately.
+        """
+        self.set_setting(PMSetting.HibernateMode, 25, scope=scope)
         self.sleepnow()
 
     def shutdownnow(self) -> None:
