@@ -1,3 +1,6 @@
+
+<img width="1920" src="https://github.com/user-attachments/assets/b0dd7f2b-e295-4722-b658-1951f8388f27" />
+
 # nercone-macpower
 pmset wrapper library/cli app for Python on macOS
 
