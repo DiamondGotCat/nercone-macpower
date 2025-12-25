@@ -860,20 +860,6 @@ class MacPower:
     def displaysleepnow(self) -> None:
         self.run("displaysleepnow", check=True)
 
-    def safesleepnow(self, *, fallback_set_mode: bool = False, scope: Union[PMScope, Literal["a", "b", "c", "u"]] = PMScope.All) -> None:
-        """
-        Attempt to safesleep immediately.
-        """
-        self.set_setting(PMSetting.HibernateMode, 3, scope=scope)
-        self.sleepnow()
-
-    def deepsleepnow(self, *, fallback_set_mode: bool = False, scope: Union[PMScope, Literal["a", "b", "c", "u"]] = PMScope.All) -> None:
-        """
-        Attempt to deepsleep immediately.
-        """
-        self.set_setting(PMSetting.HibernateMode, 25, scope=scope)
-        self.sleepnow()
-
     def shutdownnow(self) -> None:
         """
         Power off the machine immediately (shutdown -h now).

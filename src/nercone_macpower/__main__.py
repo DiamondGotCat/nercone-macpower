@@ -546,17 +546,13 @@ def _cmd_action(ns: argparse.Namespace) -> int:
     pm = _pm_factory(ns)
     act = ns.action.strip()
 
-    if act == "sleepnow":
+    if act == "sleep":
         pm.sleepnow()
-    elif act == "displaysleepnow":
+    elif act == "displaysleep":
         pm.displaysleepnow()
-    elif act == "safesleepnow":
-        pm.safesleepnow()
-    elif act == "deepsleepnow":
-        pm.deepsleepnow()
-    elif act == "shutdownnow":
+    elif act == "shutdown":
         pm.shutdownnow()
-    elif act == "restartnow":
+    elif act == "restart":
         pm.restartnow()
     elif act == "touch":
         pm.touch()
@@ -796,7 +792,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # action
     act = sub.add_parser("action", help="Run immediate action, or set a single pmset key (KEY VALUE)")
-    act.add_argument("action", help="Action name (sleepnow/displaysleepnow/safesleepnow/deepsleepnow/shutdownnow/restartnow/touch/boot/restoredefaults/resetdisplayambientparams/noidle)")
+    act.add_argument("action", help="Action name (sleepnow/displaysleepnow/shutdownnow/restartnow/touch/boot/restoredefaults/resetdisplayambientparams/noidle)")
     act.add_argument("--scope", choices=["a", "b", "c", "u"], default="a", help="Scope for KEY VALUE mode (default: a)")
     act.set_defaults(func=_cmd_action)
 
