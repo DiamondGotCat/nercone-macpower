@@ -561,11 +561,12 @@ class MacPower:
       - Settings can be set via PMSetting or raw string keys.
     """
 
-    def __init__(self, pmset_path: str = "pmset", sudo: bool = False, sudo_path: str = "sudo", timeout_sec: Optional[float] = 30.0) -> None:
+    def __init__(self, sudo: bool = False, sudo_path: str = "sudo", pmset_path: str = "pmset", shutdown_path: str = "/sbin/shutdown", timeout_sec: Optional[float] = 30.0) -> None:
         _ensure_macos()
-        self.pmset_path = pmset_path
         self.sudo = sudo
         self.sudo_path = sudo_path
+        self.pmset_path = pmset_path
+        self.shutdown_path = shutdown_path
         self.timeout_sec = timeout_sec
 
     def _cmd(self, args: List[str]) -> List[str]:
@@ -573,6 +574,33 @@ class MacPower:
         if self.sudo:
             return [self.sudo_path] + base
         return base
+
+    def _sys_cmd(self, args: List[str]) -> List[str]:
+        base = args
+        if self.sudo:
+            return [self.sudo_path] + base
+        return base
+
+    def system_run(self, *args: str, check: bool = True) -> CommandResult:
+        """
+        Run a non-pmset system command with the same timeout/sudo behavior.
+        """
+        cmd = self._sys_cmd(list(args))
+        p = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=self.timeout_sec,
+        )
+        res = CommandResult(args=cmd, returncode=p.returncode, stdout=p.stdout, stderr=p.stderr)
+        if check and p.returncode != 0:
+            raise MacPowerError(
+                f"system command failed (rc={p.returncode}).\n"
+                f"CMD: {shlex.join(cmd)}\n"
+                f"STDERR:\n{p.stderr.strip()}"
+            )
+        return res
 
     def run(self, *args: str, check: bool = True) -> CommandResult:
         cmd = self._cmd(list(args))
@@ -831,6 +859,47 @@ class MacPower:
 
     def displaysleepnow(self) -> None:
         self.run("displaysleepnow", check=True)
+
+    def hibernatenow(self, *, fallback_set_mode: bool = False, hibernatemode: int = 25, scope: Union[PMScope, Literal["a", "b", "c", "u"]] = PMScope.All) -> None:
+        """
+        Attempt to hibernate immediately.
+
+        Strategy:
+            1) Try `pmset hibernateforce` (works on some macOS versions/configurations; usually requires sudo).
+            2) If that fails and fallback_set_mode=True:
+               set hibernatemode=<hibernatemode> (default 25) then `pmset sleepnow`.
+
+        IMPORTANT:
+            - The fallback path changes `hibernatemode` persistently. It cannot be restored after sleep/hibernate
+              because this process will be suspended/terminated.
+            - For reliable behavior, run with sudo (--sudo) and understand your platform's supported modes.
+        """
+        r = self.run("hibernateforce", check=False)
+        if r.returncode == 0:
+            return
+        if not fallback_set_mode:
+            raise MacPowerError(
+                "pmset hibernateforce failed on this system.\n"
+                    f"CMD: {shlex.join(r.args)}\n"
+                    f"STDERR:\n{(r.stderr or '').strip()}\n"
+                    "Enable fallback_set_mode=True to try setting hibernatemode=25 then sleepnow."
+            )
+        self.set_setting(PMSetting.HibernateMode, int(hibernatemode), scope=scope)
+        self.sleepnow()
+
+    def shutdownnow(self) -> None:
+        """
+        Power off the machine immediately (shutdown -h now).
+        Typically requires sudo.
+        """
+        self.system_run(self.shutdown_path, "-h", "now", check=True)
+
+    def restartnow(self) -> None:
+        """
+        Restart the machine immediately (shutdown -r now).
+        Typically requires sudo.
+        """
+        self.system_run(self.shutdown_path, "-r", "now", check=True)
 
     def boot(self) -> None:
         self.run("boot", check=True)

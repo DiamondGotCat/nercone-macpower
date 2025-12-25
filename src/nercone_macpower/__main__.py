@@ -545,20 +545,17 @@ def _cmd_repeat_cancel(ns: argparse.Namespace) -> int:
 def _cmd_action(ns: argparse.Namespace) -> int:
     pm = _pm_factory(ns)
     act = ns.action.strip()
-    val = ns.value
-
-    if val is not None:
-        key = _coerce_key(act)
-        value = _coerce_value(val)
-        pm.set_setting(key, value, scope=_parse_scope(ns.scope))
-        if ns.json:
-            _print_json({"ok": True, "mode": "set", "scope": ns.scope, "key": str(key), "value": value})
-        return 0
 
     if act == "sleepnow":
         pm.sleepnow()
     elif act == "displaysleepnow":
         pm.displaysleepnow()
+    elif act == "hibernatenow":
+        pm.hibernatenow()
+    elif act == "shutdownnow":
+        pm.shutdownnow()
+    elif act == "restartnow":
+        pm.restartnow()
     elif act == "touch":
         pm.touch()
     elif act == "boot":
@@ -572,7 +569,7 @@ def _cmd_action(ns: argparse.Namespace) -> int:
             print(line)
         return 0
     else:
-        raise MacPowerError("Unknown action. Supported immediate actions: sleepnow, displaysleepnow, touch, boot, restoredefaults, resetdisplayambientparams, noidle.\nIf you intended to set a pmset key, provide VALUE: e.g. `macpower action standby on`")
+        raise MacPowerError("Unknown action. Supported immediate actions: sleepnow, displaysleepnow, hibernatenow, shutdownnow, restartnow, touch, boot, restoredefaults, resetdisplayambientparams, noidle.\nIf you intended to set a pmset key, provide VALUE: e.g. `macpower action standby on`")
 
     if ns.json:
         _print_json({"ok": True, "mode": "action", "action": act})
@@ -797,8 +794,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # action
     act = sub.add_parser("action", help="Run immediate action, or set a single pmset key (KEY VALUE)")
-    act.add_argument("action", help="Action name (sleepnow/displaysleepnow/touch/boot/restoredefaults/resetdisplayambientparams/noidle) or setting key name (e.g. standby, displaysleep, powernap ...)")
-    act.add_argument("value", nargs="?", default=None, help="If provided, set the key to this value (int/on/off/str).")
+    act.add_argument("action", help="Action name (sleepnow/displaysleepnow/hibernatenow/shutdownnow/restartnow/touch/boot/restoredefaults/resetdisplayambientparams/noidle)")
     act.add_argument("--scope", choices=["a", "b", "c", "u"], default="a", help="Scope for KEY VALUE mode (default: a)")
     act.set_defaults(func=_cmd_action)
 
